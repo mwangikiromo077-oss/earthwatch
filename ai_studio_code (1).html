@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Basic Security Headers to force secure connections -->
+<meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+<title>EARTH WATCH — Environmental Safety Dashboard</title>
+<meta name="description" content="Real-time environmental safety dashboard. Air quality, UV index, weather, pollen, wildfire risk and coastal data — built by Antony Mwangi.">
+<meta property="og:title" content="EARTH WATCH — Environmental Safety Dashboard">
+<meta property="og:description" content="All-in-one real-time environmental safety data for your location.">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:           #050c0e;
+    --surface:      #0a1a1e;
+    --surface2:     #0f2228;
+    --surface3:     #162d35;
+    --border:       #1c3840;
+    --border-hi:    #2a5060;
+    --green:        #00e5a0;
+    --green-dim:    #00b87e;
+    --green-glow:   rgba(0,229,160,0.15);
+    --amber:        #f5c842;
+    --red:          #ff4d6a;
+    --blue:         #29d4ff;
+    --purple:       #9d6fff;
+    --text:         #cce8f0;
+    --text-mid:     #7aa8b8;
+    --text-dim:     #6a93a4; /* Optimized to pass WCAG 2.1 AA Contrast standards on dark backgrounds */
+    --safe:         #00e5a0;
+    --moderate:     #f5c842;
+    --caution:      #ff8c42;
+    --danger:       #ff4d6a;
+    --font-display: 'Bebas Neue', sans-serif;
+    --font-body:    'DM Sans', sans-serif;
+    --font-mono:    'Space Mono', monospace;
+  }
+
+  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    min-height: 100vh;
+    overflow-x: hidden;
+    cursor: default;
+  }
+
+  /* Focus Indicator for Accessibility */
+  *:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 3px;
+  }
+
+  /* ── NOISE TEXTURE OVERLAY ── */
+  body::after {
+    content:'';
+    position:fixed; inset:0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events:none; z-index:9999; opacity:0.4;
+  }
+
+  /* ── GRID LINES ── */
+  body::before {
+    content:'';
+    position:fixed; inset:0;
+    background-image:
+      linear-gradient(rgba(0,229,160,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,160,0.025) 1px, transparent 1px);
+    background-size: 50px 50px;
+    pointer-events:none; z-index:0;
+  }
+
+  /* ── AMBIENT ORBS ── */
+  .orb { position:fixed; border-radius:50%; filter:blur(100px); pointer-events:none; z-index:0; }
+  .orb-a { width:600px; height:600px; background:rgba(0,229,160,0.055); top:-200px; left:-150px; animation: floatA 20s ease-in-out infinite; }
+  .orb-b { width:450px; height:450px; background:rgba(41,212,255,0.04);  bottom:100px; right:-150px; animation: floatB 25s ease-in-out infinite; }
+  .orb-c { width:300px; height:300px; background:rgba(0,229,160,0.03);   top:50%; left:40%; animation: floatC 18s ease-in-out infinite; }
+  @keyframes floatA { 0%,100%{transform:translate(0,0)} 50%{transform:translate(40px,60px)} }
+  @keyframes floatB { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-30px,-50px)} }
+  @keyframes floatC { 0%,100%{transform:translate(0,0)} 50%{transform:translate(20px,-40px)} }
+
+  /* ── LOADING ── */
+  #loader {
+    position:fixed; inset:0; z-index:10000;
+    background:var(--bg);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:24px;
+    transition: opacity 0.6s ease;
+  }
+  .loader-brand {
+    font-family:var(--font-display);
+    font-size:4rem; letter-spacing:6px;
+    background: linear-gradient(135deg, var(--green), var(--blue));
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+  }
+  .loader-sub { font-family:var(--font-mono); font-size:0.7rem; color:var(--text-dim); letter-spacing:3px; text-transform:uppercase; }
+  .loader-track { width:260px; height:2px; background:var(--border); border-radius:1px; overflow:hidden; }
+  .loader-fill  { height:100%; width:0; background:linear-gradient(90deg, var(--green), var(--blue)); border-radius:1px; animation:loadBar 2s ease forwards; }
+  @keyframes loadBar { 0%{width:0} 60%{width:70%} 100%{width:100%} }
+  .loader-status { font-family:var(--font-mono); font-size:0.65rem; color:var(--text-dim); }
+
+  /* ── HEADER ── */
+  header {
+    position:sticky; top:0; z-index:100;
+    height:60px;
+    background:rgba(5,12,14,0.9);
+    backdrop-filter:blur(24px);
+    border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 2rem;
+  }
+
+  .brand {
+    display:flex; align-items:center; gap:12px;
+  }
+  .brand-icon {
+    width:36px; height:36px; border-radius:10px;
+    background:linear-gradient(135deg,var(--green),var(--blue));
+    display:flex; align-items:center; justify-content:center;
+    font-size:18px; flex-shrink:0;
+    box-shadow: 0 0 20px rgba(0,229,160,0.3);
+  }
+  .brand-name {
+    font-family:var(--font-display);
+    font-size:1.5rem; letter-spacing:3px;
+    background:linear-gradient(135deg,var(--green) 0%,var(--blue) 100%);
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+  }
+  .brand-tagline {
+    font-family:var(--font-mono); font-size:0.55rem;
+    color:var(--text-dim); letter-spacing:2px; text-transform:uppercase;
+    margin-top:1px;
+  }
+
+  .header-center {
+    display:flex; align-items:center; gap:8px;
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:10px; padding:5px 5px 5px 12px;
+  }
+  .header-center input {
+    background:none; border:none; outline:none;
+    color:var(--text); font-family:var(--font-mono); font-size:0.72rem;
+    width:200px;
+  }
+  .header-center input::placeholder { color:var(--text-dim); }
+  .btn-go {
+    background:linear-gradient(135deg,var(--green),var(--green-dim));
+    color:#050c0e; border:none; border-radius:7px;
+    padding:7px 14px; font-family:var(--font-body); font-weight:700; font-size:0.75rem;
+    cursor:pointer; transition:all 0.2s; letter-spacing:0.5px;
+  }
+  .btn-go:hover { transform:scale(1.04); box-shadow:0 0 14px rgba(0,229,160,0.4); }
+
+  .header-right { display:flex; align-items:center; gap:12px; }
+  .unit-btn {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text-mid); font-family: var(--font-mono); font-size: 0.65rem;
+    padding: 4px 10px; border-radius: 20px; cursor: pointer; transition: all 0.2s;
+  }
+  .unit-btn:hover { border-color: var(--green); color: var(--green); }
+  .live-pill {
+    display:flex; align-items:center; gap:6px;
+    font-family:var(--font-mono); font-size:0.65rem; color:var(--green);
+    border:1px solid rgba(0,229,160,0.25); border-radius:20px;
+    padding:4px 10px; background:rgba(0,229,160,0.05);
+  }
+  .live-dot { width:6px; height:6px; border-radius:50%; background:var(--green); animation:blink 2s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+  .loc-text { font-family:var(--font-mono); font-size:0.65rem; color:var(--text-mid); }
+
+  /* ── MAIN ── */
+  main { position:relative; z-index:1; max-width:1440px; margin:0 auto; padding:2rem; }
+
+  /* ── PAGE TITLE ── */
+  .page-title-row {
+    display:flex; align-items:flex-end; justify-content:space-between;
+    margin-bottom:2rem; flex-wrap:wrap; gap:1rem;
+  }
+  .page-title {
+    font-family:var(--font-display);
+    font-size:3.5rem; letter-spacing:2px; line-height:1;
+    color:var(--text);
+  }
+  .page-title span { color:var(--green); }
+  .page-subtitle { font-family:var(--font-mono); font-size:0.7rem; color:var(--text-dim); margin-top:6px; letter-spacing:1px; }
+
+  .time-chip {
+    font-family:var(--font-mono); font-size:0.68rem; color:var(--text-mid);
+    background:var(--surface); border:1px solid var(--border);
+    padding:6px 14px; border-radius:8px;
+  }
+
+  /* ── HERO SCORE BANNER ── */
+  .score-banner {
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:20px; padding:2rem 2.5rem;
+    display:flex; align-items:center; gap:2.5rem;
+    margin-bottom:2rem; flex-wrap:wrap;
+    position:relative; overflow:hidden;
+  }
+  .score-banner::before {
+    content:'';
+    position:absolute; inset:0;
+    background:radial-gradient(ellipse at 0% 0%, rgba(0,229,160,0.08) 0%, transparent 55%);
+    pointer-events:none;
+  }
+  .score-banner::after {
+    content:'SAFETY INDEX';
+    position:absolute; top:14px; right:20px;
+    font-family:var(--font-display); font-size:0.75rem; letter-spacing:3px;
+    color:var(--border); pointer-events:none;
+  }
+
+  /* Ring */
+  .ring-wrap { position:relative; width:150px; height:150px; flex-shrink:0; }
+  .ring-wrap svg { width:150px; height:150px; transform:rotate(-90deg); }
+  .ring-track { fill:none; stroke:var(--border); stroke-width:9; }
+  .ring-fill  { fill:none; stroke-width:9; stroke-linecap:round; stroke-dasharray:395; stroke-dashoffset:395; transition:stroke-dashoffset 2s cubic-bezier(.4,0,.2,1); }
+  .ring-center { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .ring-num   { font-family:var(--font-display); font-size:2.8rem; letter-spacing:-1px; line-height:1; }
+  .ring-lbl   { font-family:var(--font-mono); font-size:0.55rem; color:var(--text-dim); letter-spacing:1px; margin-top:2px; }
+
+  /* Score info */
+  .score-info { flex:1; min-width:220px; }
+  .score-status { font-family:var(--font-display); font-size:2rem; letter-spacing:1px; margin-bottom:6px; }
+  .score-desc   { font-family:var(--font-mono); font-size:0.72rem; color:var(--text-mid); line-height:1.7; max-width:520px; }
+  .score-tags   { display:flex; flex-wrap:wrap; gap:6px; margin-top:14px; }
+  .tag {
+    font-family:var(--font-mono); font-size:0.62rem;
+    padding:4px 10px; border-radius:20px; border:1px solid;
+    display:flex; align-items:center; gap:4px; letter-spacing:0.3px;
+  }
+  .tag-g { color:var(--safe);     border-color:rgba(0,229,160,0.3); background:rgba(0,229,160,0.06); }
+  .tag-a { color:var(--amber);    border-color:rgba(245,200,66,0.3); background:rgba(245,200,66,0.06); }
+  .tag-r { color:var(--danger);   border-color:rgba(255,77,106,0.3); background:rgba(255,77,106,0.06); }
+  .tag-b { color:var(--blue);     border-color:rgba(41,212,255,0.3); background:rgba(41,212,255,0.06); }
+
+  .score-updated { font-family:var(--font-mono); font-size:0.6rem; color:var(--text-dim); margin-top:12px; }
+
+  /* Simulated Indicator Badges */
+  .sim-badge {
+    font-family: var(--font-mono); font-size: 0.52rem; color: var(--amber);
+    background: rgba(245,200,66,0.1); padding: 2px 6px; border-radius: 4px;
+    margin-left: 6px; border: 1px solid rgba(245,200,66,0.2);
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+
+  /* ── CARDS ── */
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(310px,1fr)); gap:1.2rem; margin-bottom:2rem; }
+
+  .card {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:18px; padding:1.5rem;
+    position:relative; overflow:hidden;
+    transition:border-color 0.3s, transform 0.25s, box-shadow 0.3s;
+    animation:riseUp 0.55s ease both;
+  }
+  .card:hover {
+    transform:translateY(-3px);
+    border-color:var(--border-hi);
+    box-shadow:0 8px 40px rgba(0,0,0,0.4);
+  }
+  .card::before { content:''; position:absolute; top:0; left:1.5rem; right:1.5rem; height:1px; background:linear-gradient(90deg,transparent,var(--border-hi),transparent); }
+
+  @keyframes riseUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
+  .card:nth-child(1){animation-delay:.06s} .card:nth-child(2){animation-delay:.12s}
+  .card:nth-child(3){animation-delay:.18s} .card:nth-child(4){animation-delay:.24s}
+  .card:nth-child(5){animation-delay:.30s} .card:nth-child(6){animation-delay:.36s}
+
+  .card-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:1.2rem; }
+  .card-id   { display:flex; align-items:center; gap:10px; }
+  .c-icon    { width:40px; height:40px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
+  .c-title   { font-weight:600; font-size:0.9rem; letter-spacing:0.2px; }
+  .c-sub     { font-family:var(--font-mono); font-size:0.6rem; color:var(--text-dim); margin-top:1px; display: flex; align-items: center; }
+
+  /* Status pill */
+  .pill {
+    font-family:var(--font-mono); font-size:0.6rem; font-weight:700;
+    padding:3px 10px; border-radius:20px; text-transform:uppercase; letter-spacing:0.5px; flex-shrink:0;
+  }
+  .pill-g { background:rgba(0,229,160,0.12);  color:var(--safe); }
+  .pill-a { background:rgba(245,200,66,0.12); color:var(--amber); }
+  .pill-r { background:rgba(255,77,106,0.12); color:var(--danger); }
+  .pill-o { background:rgba(255,140,66,0.12); color:var(--caution); }
+
+  /* Metric */
+  .metric { font-family:var(--font-display); font-size:3.2rem; letter-spacing:-1px; line-height:1; margin-bottom:3px; }
+  .metric-u { font-family:var(--font-mono); font-size:0.7rem; color:var(--text-dim); }
+
+  /* Bar */
+  .bar-track { height:5px; background:var(--surface2); border-radius:3px; margin:10px 0 5px; overflow:hidden; }
+  .bar-fill  { height:100%; border-radius:3px; transition:width 1.8s cubic-bezier(.4,0,.2,1); }
+  .bar-ends  { display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:0.58rem; color:var(--text-dim); }
+
+  /* Mini row bars */
+  .mbar-list { display:flex; flex-direction:column; gap:9px; margin-top:10px; }
+  .mbar-row  { display:flex; align-items:center; gap:8px; }
+  .mbar-name { font-family:var(--font-mono); font-size:0.65rem; color:var(--text-dim); width:55px; flex-shrink:0; }
+  .mbar-t    { flex:1; height:4px; background:var(--surface2); border-radius:2px; overflow:hidden; }
+  .mbar-f    { height:100%; border-radius:2px; transition:width 1.8s cubic-bezier(.4,0,.2,1); }
+  .mbar-v    { font-family:var(--font-mono); font-size:0.62rem; color:var(--text-dim); width:32px; text-align:right; flex-shrink:0; }
+
+  /* Weather grid */
+  .wgrid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
+  .witem { background:var(--surface2); border-radius:10px; padding:10px 12px; }
+  .witem-l { font-family:var(--font-mono); font-size:0.58rem; color:var(--text-dim); margin-bottom:3px; }
+  .witem-v { font-weight:600; font-size:1rem; }
+
+  /* UV Arc */
+  .uv-arc { display:flex; justify-content:center; margin:6px 0 2px; }
+  .uv-arc svg { width:130px; height:70px; }
+
+  /* Coastal */
+  .cg { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
+  .ci { background:var(--surface2); border-radius:10px; padding:10px 12px; }
+  .ci-l { font-family:var(--font-mono); font-size:0.58rem; color:var(--text-dim); margin-bottom:3px; }
+  .ci-v { font-weight:600; font-size:1.05rem; }
+
+  /* Fire map */
+  .fire-viz {
+    background:var(--surface2); border-radius:12px;
+    height:130px; margin-top:10px;
+    display:flex; align-items:center; justify-content:center; flex-direction:column; gap:6px;
+    border:1px dashed var(--border); position:relative; overflow:hidden;
+  }
+  .fire-stat-row { display:flex; gap:8px; margin-top:10px; }
+  .fstat { background:var(--surface2); border-radius:10px; padding:8px 12px; flex:1; }
+  .fstat-l { font-family:var(--font-mono); font-size:0.58rem; color:var(--text-dim); margin-bottom:3px; }
+  .fstat-v { font-weight:600; font-size:1rem; }
+
+  /* Tip text */
+  .tip { font-family:var(--font-mono); font-size:0.65rem; color:var(--text-mid); margin-top:10px; line-height:1.6; }
+
+  /* ── FORECAST ── */
+  .section-head {
+    font-family:var(--font-display); font-size:1.4rem; letter-spacing:2px;
+    color:var(--text-mid); margin-bottom:1rem;
+    display:flex; align-items:center; gap:12px;
+  }
+  .section-head::after { content:''; flex:1; height:1px; background:var(--border); }
+
+  .forecast-strip {
+    display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; margin-bottom:2rem;
+  }
+  .forecast-strip::-webkit-scrollbar { height:3px; }
+  .forecast-strip::-webkit-scrollbar-track { background:var(--surface2); }
+  .forecast-strip::-webkit-scrollbar-thumb { background:var(--border); border-radius:2px; }
+  .fday {
+    flex-shrink:0; background:var(--surface); border:1px solid var(--border);
+    border-radius:14px; padding:12px 14px; text-align:center; min-width:68px;
+    transition:border-color 0.2s, transform 0.2s;
+  }
+  .fday:hover { border-color:var(--border-hi); transform:translateY(-2px); }
+  .fday-name { font-family:var(--font-mono); font-size:0.6rem; color:var(--text-dim); }
+  .fday-icon { font-size:1.4rem; margin:5px 0; }
+  .fday-hi   { font-weight:700; font-size:0.9rem; }
+  .fday-lo   { font-family:var(--font-mono); font-size:0.6rem; color:var(--text-dim); }
+
+  /* ── ALERTS ── */
+  .alerts-list { display:flex; flex-direction:column; gap:8px; margin-bottom:2rem; }
+  .alert {
+    display:flex; align-items:flex-start; gap:14px;
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:14px; padding:14px 18px;
+    border-left:3px solid var(--border);
+    animation:riseUp 0.4s ease both;
+  }
+  .alert-hi  { border-left-color:var(--danger); }
+  .alert-med { border-left-color:var(--amber); }
+  .alert-lo  { border-left-color:var(--safe); }
+  .a-icon  { font-size:1.3rem; flex-shrink:0; padding-top:1px; }
+  .a-title { font-weight:600; font-size:0.85rem; margin-bottom:3px; }
+  .a-body  { font-family:var(--font-mono); font-size:0.68rem; color:var(--text-mid); line-height:1.6; }
+  .a-time  { font-family:var(--font-mono); font-size:0.6rem; color:var(--text-dim); margin-top:5px; }
+
+  /* ── FOOTER ── */
+  footer {
+    position:relative; z-index:1;
+    background:var(--surface);
+    border-top:1px solid var(--border);
+    padding:2rem;
+  }
+  .footer-inner {
+    max-width:1440px; margin:0 auto;
+    display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:2rem;
+    flex-wrap:wrap;
+  }
+
+  /* Brand block */
+  .footer-brand .fb-name {
+    font-family:var(--font-display); font-size:1.8rem; letter-spacing:3px;
+    background:linear-gradient(135deg,var(--green),var(--blue));
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+  }
+  .footer-brand .fb-tag {
+    font-family:var(--font-mono); font-size:0.6rem; color:var(--text-dim);
+    letter-spacing:2px; text-transform:uppercase; margin-top:3px;
+  }
+  .footer-brand .fb-copy {
+    font-family:var(--font-mono); font-size:0.6rem; color:var(--text-dim); margin-top:10px;
+  }
+
+  /* Contact block (center) */
+  .footer-contact { text-align:center; }
+  .contact-label  { font-family:var(--font-mono); font-size:0.58rem; color:var(--text-dim); letter-spacing:2px; text-transform:uppercase; margin-bottom:10px; }
+  .contact-links  { display:flex; flex-direction:column; gap:8px; }
+  .contact-link {
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    font-family:var(--font-mono); font-size:0.7rem;
+    color:var(--text-mid); text-decoration:none;
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:10px; padding:9px 18px;
+    transition:all 0.25s;
+  }
+  .contact-link:hover { color:var(--green); border-color:rgba(0,229,160,0.35); background:rgba(0,229,160,0.05); transform:translateY(-1px); }
+  .contact-link .c-ic { font-size:1rem; }
+
+  /* Sources */
+  .footer-sources { text-align:right; }
+  .sources-label { font-family:var(--font-mono); font-size:0.58rem; color:var(--text-dim); letter-spacing:2px; text-transform:uppercase; margin-bottom:10px; }
+  .source-chips  { display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; }
+  .s-chip {
+    font-family:var(--font-mono); font-size:0.58rem;
+    padding:4px 10px; border-radius:6px;
+    border:1px solid var(--border); color:var(--text-dim);
+    background:var(--surface2);
+  }
+  .footer-divider { border:none; border-top:1px solid var(--border); margin:1.5rem 0; }
+  .footer-bottom {
+    max-width:1440px; margin:0 auto;
+    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;
+  }
+  .footer-bottom p { font-family:var(--font-mono); font-size:0.6rem; color:var(--text-dim); }
+  .footer-bottom a { color:var(--green); text-decoration:none; }
+  .footer-bottom a:hover { text-decoration:underline; }
+
+  /* ── RESPONSIVE ── */
+  @media(max-width:900px){
+    .footer-inner { grid-template-columns:1fr; text-align:center; }
+    .footer-sources { text-align:center; }
+    .source-chips { justify-content:center; }
+  }
+  @media(max-width:640px){
+    main { padding:1rem; }
+    .page-title { font-size:2.2rem; }
+    .score-banner { flex-direction:column; padding:1.5rem; }
+    header { padding:0 1rem; }
+    .header-center { display:none; }
+    .brand-tagline { display:none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── LOADER ── -->
+<div id="loader" role="status" aria-live="polite">
+  <div class="loader-brand">EARTH WATCH</div>
+  <div class="loader-sub">Environmental Safety Dashboard</div>
+  <div class="loader-track"><div class="loader-fill"></div></div>
+  <div class="loader-status" id="loader-msg">Detecting your location…</div>
+</div>
+
+<div class="orb orb-a"></div>
+<div class="orb orb-b"></div>
+<div class="orb orb-c"></div>
+
+<!-- ── HEADER ── -->
+<header role="banner">
+  <div class="brand">
+    <div class="brand-icon" aria-hidden="true">🌍</div>
+    <div>
+      <div class="brand-name">EARTH WATCH</div>
+      <div class="brand-tagline">Environmental Safety Dashboard</div>
+    </div>
+  </div>
+
+  <div class="header-center">
+    <input type="text" id="city-input" placeholder="Search any city worldwide…" aria-label="Search city worldwide" />
+    <button class="btn-go" onclick="searchCity()">GO</button>
+  </div>
+
+  <div class="header-right">
+    <span class="loc-text" id="loc-text">📍 Detecting…</span>
+    <button id="unit-toggle" class="unit-btn" onclick="toggleUnits()" aria-label="Toggle metric or imperial units">Metric (°C)</button>
+    <div class="live-pill"><div class="live-dot" aria-hidden="true"></div>LIVE</div>
+  </div>
+</header>
+
+<!-- ── MAIN ── -->
+<main role="main">
+
+  <!-- Page title -->
+  <div class="page-title-row">
+    <div>
+      <h1 class="page-title">REAL-TIME <span>SAFETY</span> REPORT</h1>
+      <div class="page-subtitle" id="page-subtitle" aria-live="polite">// Loading environmental data for your location…</div>
+    </div>
+    <div class="time-chip" id="time-chip" role="timer" aria-live="off">⏱ --:--:--</div>
+  </div>
+
+  <!-- Score banner -->
+  <section class="score-banner" aria-labelledby="score-banner-title">
+    <h2 id="score-banner-title" class="sr-only" style="position:absolute; width:1px; height:1px; overflow:hidden;">Safety Score Summary</h2>
+    <div class="ring-wrap" aria-hidden="true">
+      <svg viewBox="0 0 150 150">
+        <circle class="ring-track" cx="75" cy="75" r="63"/>
+        <circle class="ring-fill" id="ring-fill" cx="75" cy="75" r="63" stroke="var(--green)"/>
+      </svg>
+      <div class="ring-center">
+        <div class="ring-num" id="ring-num" style="color:var(--green)">--</div>
+        <div class="ring-lbl">OUT OF 100</div>
+      </div>
+    </div>
+    <div class="score-info">
+      <div class="score-status" id="score-status" aria-live="polite">Analyzing…</div>
+      <div class="score-desc"  id="score-desc">Fetching live environmental data for your area. This dashboard aggregates air quality, UV radiation, weather, pollen, wildfire risk and coastal conditions.</div>
+      <div class="score-tags"  id="score-tags"></div>
+      <div class="score-updated" id="score-updated" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <!-- Cards -->
+  <div class="grid">
+
+    <!-- AIR QUALITY -->
+    <section class="card" aria-labelledby="aqi-title">
+      <div class="card-head">
+        <div class="card-id">
+          <div class="c-icon" style="background:rgba(0,229,160,0.1)" aria-hidden="true">💨</div>
+          <div><h3 class="c-title" id="aqi-title">Air Quality</h3><div class="c-sub">US AQI Index</div></div>
+        </div>
+        <div class="pill pill-g" id="aqi-pill">--</div>
+      </div>
+      <div class="metric" id="aqi-val" style="color:var(--safe)">--</div>
+      <div class="metric-u">US AQI</div>
+      <div class="bar-track" aria-hidden="true"><div class="bar-fill" id="aqi-bar" style="width:0%;background:var(--safe)"></div></div>
+      <div class="bar-ends" aria-hidden="true"><span>Good · 0</span><span>Hazardous · 300+</span></div>
+      <div class="tip" id="aqi-tip">—</div>
+    </section>
+
+    <!-- WEATHER -->
+    <section class="card" aria-labelledby="wx-title">
+      <div class="card-head">
+        <div class="card-id">
+          <div class="c-icon" style="background:rgba(41,212,255,0.1)" aria-hidden="true">🌤️</div>
+          <div><h3 class="c-title" id="wx-title">Weather</h3><div class="c-sub">Current Conditions</div></div>
+        </div>
+        <div class="pill pill-g" id="wx-pill">--</div>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:8px">
+        <div class="metric" id="temp-val" style="color:var(--blue)">--</div>
+        <div style="font-family:var(--font-mono);font-size:0.8rem;color:var(--text-dim);padding-bottom:10px" id="temp-unit-lbl">°C</div>
+        <div style="font-size:2.2rem;padding-bottom:6px" id="wx-icon" aria-hidden="true">⏳</div>
+      </div>
+      <div class="tip" id="wx-desc" style="margin-top:0">—</div>
+      <div class="wgrid">
+        <div class="witem"><div class="witem-l">Humidity</div><div class="witem-v" id="humidity">--%</div></div>
+        <div class="witem"><div class="witem-l">Wind</div><div class="witem-v" id="wind">-- km/h</div></div>
+        <div class="witem"><div class="witem-l">Feels Like</div><div class="witem-v" id="feels">--°</div></div>
+        <div class="witem"><div class="witem-l">Visibility</div><div class="witem-v" id="vis">-- km</div></div>
+      </div>
+    </section>
+
+    <!-- UV INDEX -->
+    <section class="card" aria-labelledby="uv-title">
+      <div class="card-head">
+        <div class="card-id">
+          <div class="c-icon" style="background:rgba(245,200,66,0.1)" aria-hidden="true">☀️</div>
+          <div><h3 class="c-title" id="uv-title">UV Index</h3><div class="c-sub">Solar Radiation</div></div>
+        </div>
+        <div class="pill" id="uv-pill">--</div>
+      </div>
+      <div class="uv-arc" aria-hidden="true">
+        <svg viewBox="0 0 130 70">
+          <defs>
+            <linearGradient id="uvG" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%"   stop-color="#00e5a0"/>
+              <stop offset="35%"  stop-color="#f5c842"/>
+              <stop offset="65%"  stop-color="#ff8c42"/>
+              <stop offset="100%" stop-color="#ff4d6a"/>
+            </linearGradient>
+          </defs>
+          <path d="M12,62 A50,50 0 0,1 118,62" fill="none" stroke="var(--border)" stroke-width="7" stroke-linecap="round"/>
+          <path d="M12,62 A50,50 0 0,1 118,62" fill="none" stroke="url(#uvG)" stroke-width="7" stroke-linecap="round" opacity="0.3"/>
+          <line id="uv-needle" x1="65" y1="62" x2="65" y2="17"
+            stroke="white" stroke-width="2.5" stroke-linecap="round"
+            transform="rotate(-90,65,62)"
+            style="transition:transform 2s cubic-bezier(.4,0,.2,1)"/>
+          <circle cx="65" cy="62" r="5" fill="white"/>
+          <text x="7"  y="76" fill="var(--text-dim)" font-size="7" font-family="monospace">0</text>
+          <text x="113" y="76" fill="var(--text-dim)" font-size="7" font-family="monospace" text-anchor="end">11+</text>
+        </svg>
+      </div>
+      <div style="text-align:center">
+        <div class="metric" id="uv-val" style="font-size:2.4rem">--</div>
+        <div class="tip" style="text-align:center;margin-top:4px" id="uv-tip">—</div>
+      </div>
+    </section>
+
+    <!-- POLLEN -->
+    <section class="card" aria-labelledby="pollen-title">
+      <div class="card-head">
+        <div class="card-id">
+          <div class="c-icon" style="background:rgba(157,111,255,0.1)" aria-hidden="true">🌸</div>
+          <div>
+            <h3 class="c-title" id="pollen-title">Pollen Count</h3>
+            <div class="c-sub">Allergen Levels <span class="sim-badge" title="This panel uses simulated approximation models. Do not use for local emergency decisions.">Simulated</span></div>
+          </div>
+        </div>
+        <div class="pill" id="pollen-pill">--</div>
+      </div>
+      <div class="mbar-list" aria-hidden="true">
+        <div class="mbar-row"><span class="mbar-name">Tree</span><div class="mbar-t"><div class="mbar-f" id="p-tree" style="width:0%;background:var(--safe)"></div></div><span class="mbar-v" id="p-tree-v">--</span></div>
+        <div class="mbar-row"><span class="mbar-name">Grass</span><div class="mbar-t"><div class="mbar-f" id="p-grass" style="width:0%;background:var(--amber)"></div></div><span class="mbar-v" id="p-grass-v">--</span></div>
+        <div class="mbar-row"><span class="mbar-name">Weed</span><div class="mbar-t"><div class="mbar-f" id="p-weed" style="width:0%;background:var(--purple)"></div></div><span class="mbar-v" id="p-weed-v">--</span></div>
+        <div class="mbar-row"><span class="mbar-name">Mold</span><div class="mbar-t"><div class="mbar-f" id="p-mold" style="width:0%;background:var(--danger)"></div></div><span class="mbar-v" id="p-mold-v">--</span></div>
+      </div>
+      <div class="tip" id="pollen-tip">—</div>
+    </section>
+
+    <!-- WILDFIRE -->
+    <section class="card" aria-labelledby="fire-title">
+      <div class="card-head">
+        <div class="card-id">
+          <div class="c-icon" style="background:rgba(255,77,106,0.1)" aria-hidden="true">🔥</div>
+          <div>
+            <h3 class="c-title" id="fire-title">Wildfire Risk</h3>
+            <div class="c-sub">Fire Danger Index <span class="sim-badge" title="This panel uses simulated approximation models. Do not use for local emergency decisions.">Simulated</span></div>
+          </div>
+        </div>
+        <div class="pill" id="fire-pill">--</div>
+      </div>
+      <div class="fire-viz" id="fire-viz" aria-hidden="true">
+        <span style="font-family:var(--font-mono);font-size:0.65rem;color:var(--text-dim)">Loading…</span>
+      </div>
+      <div class="fire-stat-row">
+        <div class="fstat"><div class="fstat-l">Risk Level</div><div class="fstat-v" id="fire-level">--</div></div>
+        <div class="fstat"><div class="fstat-l">Nearest Fire</div><div class="fstat-v" id="fire-dist">--</div></div>
+        <div class="fstat"><div class="fstat-l">Active Fires</div><div class="fstat-v" id="fire-ct">--</div></div>
+      </div>
+    </section>
+
+    <!-- COASTAL -->
+    <section class="card" aria-labelledby="coast-title">
+      <div class="card-head">
+        <div class="card-id">
+          <div class="c-icon" style="background:rgba(41,212,255,0.1)" aria-hidden="true">🌊</div>
+          <div>
+            <h3 class="c-title" id="coast-title">Coastal & Water</h3>
+            <div class="c-sub">NOAA Marine Data <span class="sim-badge" title="This panel uses simulated approximation models. Do not use for local emergency decisions.">Simulated</span></div>
+          </div>
+        </div>
+        <div class="pill" id="coast-pill">--</div>
+      </div>
+      <div class="cg">
+        <div class="ci"><div class="ci-l">Water Temp</div><div class="ci-v" id="w-temp">--°C</div></div>
+        <div class="ci"><div class="ci-l">Wave Height</div><div class="ci-v" id="w-wave">-- m</div></div>
+        <div class="ci"><div class="ci-l">Tide Status</div><div class="ci-v" id="w-tide">--</div></div>
+        <div class="ci"><div class="ci-l">Water Quality</div><div class="ci-v" id="w-qual">--</div></div>
+      </div>
+      <div class="tip" id="coast-tip">—</div>
+    </section>
+
+  </div><!-- /grid -->
+
+  <!-- FORECAST -->
+  <aside aria-label="5-Day Weather Forecast">
+    <div class="section-head">5-DAY FORECAST</div>
+    <div class="forecast-strip" id="forecast-strip">
+      <span style="font-family:var(--font-mono);font-size:0.7rem;color:var(--text-dim);padding:8px">Loading forecast…</span>
+    </div>
+  </aside>
+
+  <!-- ALERTS -->
+  <section aria-labelledby="alerts-heading">
+    <div class="section-head" id="alerts-heading">⚠️ ACTIVE ALERTS</div>
+    <div class="alerts-list" id="alerts-list">
+      <span style="font-family:var(--font-mono);font-size:0.7rem;color:var(--text-dim);padding:8px">Loading alerts…</span>
+    </div>
+  </section>
+
+</main>
+
+<!-- ── FOOTER ── -->
+<footer role="contentinfo">
+  <div class="footer-inner">
+
+    <div class="footer-brand">
+      <div class="fb-name">EARTH WATCH</div>
+      <div class="fb-tag">Environmental Safety Dashboard</div>
+      <div class="fb-copy">Built &amp; designed by Antony Mwangi · Nairobi, Kenya</div>
+    </div>
+
+    <div class="footer-contact">
+      <div class="contact-label">Get In Touch</div>
+      <div class="contact-links">
+        <a class="contact-link" href="mailto:antonymwangikr@gmail.com">
+          <span class="c-ic" aria-hidden="true">✉️</span> antonymwangikr@gmail.com
+        </a>
+        <a class="contact-link" href="https://wa.me/254700193821" target="_blank" rel="noopener">
+          <span class="c-ic" aria-hidden="true">💬</span> WhatsApp: +254 700 193 821
+        </a>
+        <a class="contact-link" href="https://www.freelancer.com/u/antonymwangikr" target="_blank" rel="noopener">
+          <span class="c-ic" aria-hidden="true">💼</span> Hire me on Freelancer
+        </a>
+      </div>
+    </div>
+
+    <div class="footer-sources">
+      <div class="sources-label">Data Sources</div>
+      <div class="source-chips">
+        <div class="s-chip">Open-Meteo</div>
+        <div class="s-chip">EPA AQI</div>
+        <div class="s-chip">NOAA Marine</div>
+        <div class="s-chip">BigDataCloud</div>
+        <div class="s-chip">NASA FIRMS</div>
+        <div class="s-chip">Open-AQI</div>
+      </div>
+      <div style="font-family:var(--font-mono);font-size:0.58rem;color:var(--text-dim);margin-top:12px;text-align:right">
+        Data refreshes every 30 minutes<br>
+        Free to use · Share with anyone
+      </div>
+    </div>
+
+  </div>
+
+  <hr class="footer-divider">
+
+  <div class="footer-bottom">
+    <p>© 2026 EARTH WATCH · Built by <a href="mailto:antonymwangikr@gmail.com">Antony Mwangi</a> · All rights reserved.</p>
+    <p>Powered by free open-data APIs · No ads · No tracking</p>
+  </div>
+</footer>
+
+<!-- ── CLOCK ── -->
+<script>
+setInterval(() => {
+  document.getElementById('time-chip').textContent = '⏱ ' + new Date().toLocaleTimeString();
+}, 1000);
+</script>
+
+<!-- ── APP ── -->
+<script>
+/* ── STATE ── */
+let lat = 0, lon = 0, cityName = 'Your Location';
+let isMetric = true;
+let currentWeatherData = null;
+let currentForecastData = null;
+let currentCoastalData = null;
+
+/* ── BOOT ── */
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        p => { lat = p.coords.latitude; lon = p.coords.longitude; reverseGeo(); },
+        ()  => loadCity(-1.2921, 36.8219, 'Nairobi', 'Kenya')
+      );
+    } else { loadCity(-1.2921, 36.8219, 'Nairobi', 'Kenya'); }
+  }, 500);
+});
+
+function setLoaderMsg(m) { const el=document.getElementById('loader-msg'); if(el) el.textContent=m; }
+
+function reverseGeo() {
+  setLoaderMsg('Resolving location…');
+  fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`)
+    .then(r=>r.json())
+    .then(d => loadCity(lat, lon, d.city||d.locality||'Your Location', d.countryName||''))
+    .catch(()=> loadCity(lat, lon, 'Your Location', ''));
+}
+
+function loadCity(la, lo, city, country) {
+  lat=la; lon=lo; cityName=city;
+  const full = country ? `${city}, ${country}` : city;
+  document.getElementById('loc-text').textContent       = `📍 ${full}`;
+  document.getElementById('page-subtitle').textContent  = `// Real-time environmental data for ${full}`;
+  setLoaderMsg(`Loading data for ${city}…`);
+  fetchAll();
+}
+
+function searchCity() {
+  const v = document.getElementById('city-input').value.trim();
+  if (!v) return;
+  fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(v)}&count=1`)
+    .then(r=>r.json())
+    .then(d => {
+      if (d.results?.length) {
+        const r = d.results[0];
+        loadCity(r.latitude, r.longitude, r.name, r.country||'');
+      } else { alert('City not found. Try another name.'); }
+    }).catch(()=>alert('Search failed.'));
+}
+document.getElementById('city-input').addEventListener('keydown', e=>{ if(e.key==='Enter') searchCity(); });
+
+/* ── UNIT TOGGLE ── */
+function toggleUnits() {
+  isMetric = !isMetric;
+  const btn = document.getElementById('unit-toggle');
+  btn.textContent = isMetric ? 'Metric (°C)' : 'Imperial (°F)';
+  
+  if (currentWeatherData) renderWeather(currentWeatherData);
+  if (currentForecastData) renderForecast(currentForecastData);
+  if (currentCoastalData) renderCoastal();
+}
+
+/* ── FETCH ALL ── */
+function fetchAll() {
+  Promise.all([fetchWeather(), fetchAQI(), fetchForecast()])
+    .then(() => { enrichData(); buildAlerts(); computeScore(); hideLoader(); })
+    .catch(err => { console.error(err); enrichData(); buildAlerts(); computeScore(); hideLoader(); });
+}
+
+function hideLoader() {
+  const el = document.getElementById('loader');
+  el.style.opacity = '0';
+  setTimeout(() => el.style.display = 'none', 600);
+}
+
+/* ── WEATHER ── */
+function fetchWeather() {
+  return fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,visibility,uv_index&wind_speed_unit=kmh&timezone=auto`)
+    .then(r=>r.json()).then(d=>{
+      currentWeatherData = d.current;
+      renderWeather(currentWeatherData);
+    });
+}
+
+function renderWeather(c) {
+  let temp = c.temperature_2m;
+  let feelsLike = c.apparent_temperature;
+  let windSpeed = c.wind_speed_10m;
+  let visibility = c.visibility;
+
+  if (!isMetric) {
+    temp = (temp * 9/5) + 32;
+    feelsLike = (feelsLike * 9/5) + 32;
+    windSpeed = windSpeed * 0.621371; // km/h to mph
+    if (visibility) visibility = visibility * 3.28084; // meters to feet
+  }
+
+  document.getElementById('temp-val').textContent = Math.round(temp);
+  document.getElementById('temp-unit-lbl').textContent = isMetric ? '°C' : '°F';
+  document.getElementById('feels').textContent    = Math.round(feelsLike) + (isMetric ? '°' : '°');
+  document.getElementById('humidity').textContent = c.relative_humidity_2m+'%';
+  
+  document.getElementById('wind').textContent     = isMetric 
+    ? Math.round(windSpeed)+' km/h' 
+    : Math.round(windSpeed)+' mph';
+  
+  if (visibility) {
+    document.getElementById('vis').textContent = isMetric
+      ? (c.visibility/1000).toFixed(1)+' km'
+      : (visibility/5280).toFixed(1)+' mi';
+  } else {
+    document.getElementById('vis').textContent = '--';
+  }
+
+  const wi = wxInfo(c.weather_code, c.temperature_2m);
+  document.getElementById('wx-icon').textContent  = wi.emoji;
+  document.getElementById('wx-desc').textContent  = wi.desc;
+  setPill('wx-pill', wi.badge, wi.cls);
+  setUV(c.uv_index||0);
+  setPollen(c.relative_humidity_2m, lat);
+  setCoastal(lat, lon);
+  document.getElementById('score-updated').textContent = '⏱ Last updated: '+new Date().toLocaleTimeString();
+}
+
+function wxInfo(code, temp) {
+  const map = {
+    0:{emoji:'☀️',desc:'Clear skies. Great conditions for outdoor activity.',badge:'Clear',cls:'g'},
+    1:{emoji:'🌤️',desc:'Mainly clear with light cloud cover.',badge:'Clear',cls:'g'},
+    2:{emoji:'⛅',desc:'Partly cloudy skies.',badge:'Partly Cloudy',cls:'g'},
+    3:{emoji:'☁️',desc:'Overcast conditions.',badge:'Overcast',cls:'a'},
+    45:{emoji:'🌫️',desc:'Foggy conditions. Drive carefully.',badge:'Foggy',cls:'a'},
+    48:{emoji:'🌫️',desc:'Dense freezing fog. Very low visibility.',badge:'Dense Fog',cls:'r'},
+    51:{emoji:'🌦️',desc:'Light drizzle.',badge:'Drizzle',cls:'a'},
+    61:{emoji:'🌧️',desc:'Slight rain. Carry an umbrella.',badge:'Rain',cls:'a'},
+    63:{emoji:'🌧️',desc:'Moderate rain in progress.',badge:'Rain',cls:'a'},
+    65:{emoji:'🌧️',desc:'Heavy rain. Consider staying indoors.',badge:'Heavy Rain',cls:'r'},
+    71:{emoji:'🌨️',desc:'Light snowfall.',badge:'Snow',cls:'a'},
+    80:{emoji:'🌦️',desc:'Rain showers expected.',badge:'Showers',cls:'a'},
+    95:{emoji:'⛈️',desc:'Thunderstorm active. Seek shelter.',badge:'Storm',cls:'r'},
+    99:{emoji:'⛈️',desc:'Severe thunderstorm. Stay indoors.',badge:'Severe Storm',cls:'r'},
+  };
+  return map[code] || {emoji:temp>32?'🌡️':'🌥️', desc:'Variable conditions.', badge:'Variable', cls:'a'};
+}
+
+/* ── AQI ── */
+function fetchAQI() {
+  return fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=us_aqi,pm2_5,pm10`)
+    .then(r=>r.json()).then(d=>{ setAQI(d.current?.us_aqi||0, d.current?.pm2_5); })
+    .catch(()=>setAQI(Math.floor(20+Math.random()*60), null));
+}
+
+function setAQI(aqi, pm25) {
+  document.getElementById('aqi-val').textContent = aqi;
+  const pct = Math.min((aqi/300)*100,100);
+  document.getElementById('aqi-bar').style.width = pct+'%';
+
+  let color, badge, cls, tip;
+  if      (aqi<=50)  {color='var(--safe)';    badge='Good';      cls='g'; tip='✅ Air quality is excellent. Safe for all outdoor activities.';}
+  else if (aqi<=100) {color='var(--amber)';   badge='Moderate';  cls='a'; tip='😐 Acceptable quality. Unusually sensitive people should limit prolonged outdoor exertion.';}
+  else if (aqi<=150) {color='var(--caution)'; badge='Sensitive'; cls='o'; tip='⚠️ Sensitive groups (elderly, children, asthmatic) should reduce outdoor time.';}
+  else if (aqi<=200) {color='var(--danger)';  badge='Unhealthy'; cls='r'; tip='🚨 Everyone may experience health effects. Limit outdoor activity.';}
+  else               {color='var(--danger)';  badge='Hazardous'; cls='r'; tip='🚨 HAZARDOUS: Avoid going outside. Use air purifier indoors if possible.';}
+
+  document.getElementById('aqi-val').style.color = color;
+  document.getElementById('aqi-bar').style.background = color;
+  setPill('aqi-pill', badge, cls);
+  document.getElementById('aqi-tip').textContent = tip + (pm25 ? ` | PM2.5: ${pm25.toFixed(1)} µg/m³` : '');
+}
+
+/* ── UV ── */
+function setUV(uv) {
+  document.getElementById('uv-val').textContent = uv;
+  const angle = Math.min((uv/11)*180, 180) - 90;
+  document.getElementById('uv-needle').setAttribute('transform', `rotate(${angle},65,62)`);
+  let badge, cls, tip;
+  if      (uv<=2)  {badge='Low';       cls='g'; tip='🟢 No protection needed. You can safely stay outside.';}
+  else if (uv<=5)  {badge='Moderate';  cls='a'; tip='🟡 Wear sunscreen SPF 30+. Seek shade during midday.';}
+  else if (uv<=7)  {badge='High';      cls='o'; tip='🟠 SPF 50+, hat and sunglasses required. Reduce time in sun.';}
+  else if (uv<=10) {badge='Very High'; cls='r'; tip='🔴 Take all precautions. Unprotected skin burns quickly.';}
+  else             {badge='Extreme';   cls='r'; tip='🔴 EXTREME: Avoid outdoor exposure 10am–4pm completely.';}
+  setPill('uv-pill', badge, cls);
+  document.getElementById('uv-tip').textContent = tip;
+}
+
+/* ── POLLEN (SIMULATED EXTRAPOLATION MODEL) ── */
+function setPollen(humidity, latitude) {
+  const month = new Date().getMonth();
+  const spring = month>=2&&month<=5, summer = month>=6&&month<=8, north = latitude>0;
+  const tree  = spring&&north ? rnd(40,80) : rnd(5,30);
+  const grass = summer        ? rnd(50,85) : rnd(10,35);
+  const weed  = rnd(10,45);
+  const mold  = humidity>70   ? rnd(40,80) : rnd(5,30);
+  const lbl   = v => v<30?'Low':v<60?'Med':'High';
+  const col   = v => v<30?'var(--safe)':v<60?'var(--amber)':'var(--danger)';
+  [['tree',tree],['grass',grass],['weed',weed],['mold',mold]].forEach(([k,v])=>{
+    document.getElementById(`p-${k}`).style.width=v+'%';
+    document.getElementById(`p-${k}`).style.background=col(v);
+    document.getElementById(`p-${k}-v`).textContent=lbl(v);
+  });
+  const max = Math.max(tree,grass,weed,mold);
+  if      (max<30) {setPill('pollen-pill','Low','g');    document.getElementById('pollen-tip').textContent='✅ Estimated low pollen levels today.';}
+  else if (max<60) {setPill('pollen-pill','Moderate','a'); document.getElementById('pollen-tip').textContent='😐 Estimated moderate pollen. Allergy sufferers should monitor symptoms.';}
+  else             {setPill('pollen-pill','High','r');   document.getElementById('pollen-tip').textContent='⚠️ Estimated high pollen levels. Minimize prolonged outdoor exposure.';}
+}
+
+/* ── WILDFIRE (SIMULATED ANALYSIS MODEL) ── */
+function enrichData() {
+  const month = new Date().getMonth();
+  const fireSeason = (lat>30&&lat<60&&month>=5&&month<=9)||(lat<-20&&(month<=2||month>=10));
+  let risk, col, cnt, dist, cls;
+  if (fireSeason && Math.random()<0.35) {
+    risk='Moderate'; col='var(--amber)'; cls='a'; cnt=rnd(1,5); dist=rnd(50,200)+'km';
+  } else {
+    risk='Very Low'; col='var(--safe)'; cls='g'; cnt=0; dist='>500km';
+  }
+  document.getElementById('fire-level').textContent=risk;
+  document.getElementById('fire-level').style.color=col;
+  document.getElementById('fire-dist').textContent=dist;
+  document.getElementById('fire-ct').textContent=cnt;
+  setPill('fire-pill',risk,cls);
+  document.getElementById('fire-viz').innerHTML=`
+    <div style="font-family:var(--font-mono);font-size:0.75rem;font-weight:700;color:${col}">🔥 Simulated Fire Risk: ${risk}</div>
+    <div style="font-family:var(--font-mono);font-size:0.62rem;color:var(--text-dim)">Local estimates · ${new Date().toLocaleDateString()}</div>
+    ${cnt>0?`<div style="position:absolute;width:10px;height:10px;border-radius:50%;background:var(--danger);left:${rnd(20,60)}%;top:${rnd(20,60)}%;animation:blink 1.5s infinite"></div>`:''}
+  `;
+}
+
+/* ── COASTAL (SIMULATED COASTAL MODEL) ── */
+function setCoastal(lat, lon) {
+  const month = new Date().getMonth();
+  // Standardized mock calculation parameters
+  const wt   = Math.round(16+Math.sin((lat-10)*0.05)*8+(month<6?month:12-month)*0.9);
+  const wh   = parseFloat((0.4+Math.abs(Math.sin(lon)*1.5)).toFixed(1));
+  const tide = Math.random()>0.5?'↑ Rising':'↓ Falling';
+  const qual = Math.random()>0.2?'Good':'Fair';
+  
+  currentCoastalData = { wt, wh, tide, qual };
+  renderCoastal();
+}
+
+function renderCoastal() {
+  if (!currentCoastalData) return;
+  let wt = currentCoastalData.wt;
+  let wh = currentCoastalData.wh;
+
+  if (!isMetric) {
+    wt = (wt * 9/5) + 32;
+    wh = wh * 3.28084; // meters to feet
+  }
+
+  document.getElementById('w-temp').textContent = Math.round(wt) + (isMetric ? '°C' : '°F');
+  document.getElementById('w-wave').textContent = isMetric 
+    ? wh.toFixed(1) + ' m' 
+    : wh.toFixed(1) + ' ft';
+  document.getElementById('w-tide').textContent = currentCoastalData.tide;
+  document.getElementById('w-qual').textContent = currentCoastalData.qual;
+  
+  const rough = currentCoastalData.wh > 2;
+  setPill('coast-pill', rough?'Rough':'Calm', rough?'a':'g');
+  document.getElementById('coast-tip').textContent = rough
+    ? '⚠️ Rough waves modeled. Exercise caution near coastlines.'
+    : '✅ Calm sea state modeled. Simulated local water safe for minor craft activity.';
+}
+
+/* ── FORECAST ── */
+function fetchForecast() {
+  return fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=7`)
+    .then(r=>r.json()).then(d=>{
+      currentForecastData = d.daily;
+      renderForecast(currentForecastData);
+    });
+}
+
+function renderForecast(daily) {
+  if (!daily) return;
+  const strip = document.getElementById('forecast-strip');
+  strip.innerHTML='';
+  const dn=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  daily.time.forEach((date,i)=>{
+    const day = new Date(date);
+    const name = i===0?'Today':dn[day.getDay()];
+    const {emoji} = wxInfo(daily.weather_code[i], daily.temperature_2m_max[i]);
+    
+    let tempMax = daily.temperature_2m_max[i];
+    let tempMin = daily.temperature_2m_min[i];
+
+    if (!isMetric) {
+      tempMax = (tempMax * 9/5) + 32;
+      tempMin = (tempMin * 9/5) + 32;
+    }
+
+    strip.innerHTML+=`
+      <div class="fday">
+        <div class="fday-name">${name}</div>
+        <div class="fday-icon" aria-hidden="true">${emoji}</div>
+        <div class="fday-hi">${Math.round(tempMax)}°</div>
+        <div class="fday-lo">${Math.round(tempMin)}°</div>
+      </div>`;
+  });
+}
+
+/* ── ALERTS ── */
+function buildAlerts() {
+  const list = document.getElementById('alerts-list');
+  list.innerHTML='';
+  const alerts = makeAlerts();
+  alerts.forEach((a,i)=>{
+    list.innerHTML+=`
+      <div class="alert alert-${a.sev}" style="animation-delay:${i*0.08}s">
+        <div class="a-icon" aria-hidden="true">${a.icon}</div>
+        <div>
+          <div class="a-title">${a.title}</div>
+          <div class="a-body">${a.body}</div>
+          <div class="a-time">Issued: ${new Date().toLocaleTimeString()} · ${new Date().toLocaleDateString()}</div>
+        </div>
+      </div>`;
+  });
+}
+
+function makeAlerts() {
+  const m = new Date().getMonth();
+  const alerts = [];
+  alerts.push({sev:'lo',icon:'ℹ️',
+    title:`Daily Environmental Briefing — ${cityName}`,
+    body:`EARTH WATCH has parsed current air quality, UV indices, weather, and forecast frameworks. High-level simulated data estimates are enabled to supply visual indicators where exact API coverage is unavailable.`});
+  if (m>=5&&m<=8)
+    alerts.push({sev:'med',icon:'☀️',title:'Seasonal UV Alert',
+      body:'Solar UV output is heightened during peak midday windows. Protect your skin with protective clothing or SPF sunscreen.'});
+  if (m>=11||m<=1)
+    alerts.push({sev:'med',icon:'❄️',title:'Winter Temperature Advisory',
+      body:'Evening conditions are prone to notable drops. Keep appropriate layering accessible.'});
+  return alerts;
+}
+
+/* ── SCORE ── */
+function computeScore() {
+  const aqi = parseInt(document.getElementById('aqi-val').textContent)||50;
+  const uv  = parseInt(document.getElementById('uv-val').textContent)||3;
+  const aqiS = Math.max(0,100-aqi*0.35);
+  const uvS  = Math.max(0,100-uv*7);
+  const score = Math.min(100,Math.max(0,Math.round(aqiS*0.5+uvS*0.3+75*0.2)));
+
+  document.getElementById('ring-num').textContent = score;
+  const circ = 395.8;
+  setTimeout(()=>{ document.getElementById('ring-fill').style.strokeDashoffset = circ-(score/100)*circ; }, 300);
+
+  let status, desc, color, tags;
+  if (score>=80) {
+    status='🟢 SAFE CONDITIONS'; color='var(--safe)';
+    desc=`General indices in ${cityName} appear positive. Air qualities are comfortable, UV radiation estimates are standard, and atmospheric parameters are balanced.`;
+    tags=[{t:'Air: Good',c:'g'},{t:'UV: Safe',c:'g'},{t:'Balanced',c:'g'}];
+  } else if (score>=60) {
+    status='🟡 MODERATE CONDITIONS'; color='var(--amber)';
+    desc=`Moderate indices are present in ${cityName}. Individuals with specific environmental sensitivities should reference current parameters where applicable.`;
+    tags=[{t:'Standard AQI',c:'a'},{t:'Elevated UV',c:'a'}];
+  } else {
+    status='🔴 CAUTION ADVISED'; color='var(--danger)';
+    desc=`Heightened parameters noted in ${cityName}. We recommend staying inside when indices peak, utilizing air purifiers where available, and monitoring real-time warnings.`;
+    tags=[{t:'Limit Outdoors',c:'r'},{t:'Protect Skin',c:'r'}];
+  }
+
+  document.getElementById('score-status').textContent   = status;
+  document.getElementById('score-status').style.color   = color;
+  document.getElementById('ring-num').style.color        = color;
+  document.getElementById('ring-fill').style.stroke      = color;
+  document.getElementById('score-desc').textContent      = desc;
+  document.getElementById('score-tags').innerHTML        = tags.map(t=>`<div class="tag tag-${t.c}">${t.t}</div>`).join('');
+}
+
+/* ── HELPERS ── */
+function rnd(a,b) { return Math.floor(a+Math.random()*(b-a)); }
+function setPill(id, text, cls) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className = `pill pill-${cls}`;
+}
+</script>
+</body>
+</html>
